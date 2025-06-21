@@ -4,7 +4,6 @@ import React, { useState, useEffect, useRef, FC, ReactNode, InputHTMLAttributes,
 import { Play, Activity, Target, ShieldCheck, Cpu, Search, Bot } from 'lucide-react'
 import { gsap } from 'gsap'
 
-// --- TYPE DEFINITIONS ---
 interface AgentReport {
   agent: string;
   findings: string;
@@ -22,10 +21,9 @@ interface AgentState {
   title: string;
   color: string;
   icon: ReactNode;
-  report: string; // This will hold the streamed content
+  report: string;
 }
 
-// --- CHILD COMPONENTS ---
 interface VortexInputProps extends InputHTMLAttributes<HTMLInputElement> {
   icon: ReactNode;
 }
@@ -67,7 +65,6 @@ const MagneticButton: FC<MagneticButtonProps> = ({ children, onClick, disabled, 
   );
 };
 
-// --- MAIN COMPONENT ---
 export default function EchocheckInterface() {
   const [videoUrl, setVideoUrl] = useState<string>('');
   const [userPrompt, setUserPrompt] = useState<string>('');
@@ -87,7 +84,6 @@ export default function EchocheckInterface() {
   const analysisViewRef = useRef<HTMLDivElement | null>(null);
   const resultsViewRef = useRef<HTMLDivElement | null>(null);
 
-  // Initial load animation
   useEffect(() => {
     gsap.fromTo(vortexCardRef.current, 
       { opacity: 0, y: 50, scale: 0.95 }, 
@@ -95,7 +91,6 @@ export default function EchocheckInterface() {
     );
   }, []);
   
-  // Animation logic for stage transitions
   useEffect(() => {
     const tl = gsap.timeline();
     if (analysisStage === 'streaming') {
@@ -124,7 +119,7 @@ export default function EchocheckInterface() {
 
   const analyzeContent = async () => {
     setError(null);
-    setAgents(initialAgents); // Reset agents
+    setAgents(initialAgents);
     setAnalysisStage('streaming');
 
     try {
@@ -152,7 +147,6 @@ export default function EchocheckInterface() {
         done = readerDone;
         const chunk = decoder.decode(value, { stream: true });
         
-        // Process server-sent events
         const events = chunk.split('data: ').filter(s => s.trim());
         for (const event of events) {
           try {
@@ -168,17 +162,16 @@ export default function EchocheckInterface() {
               setResults(data.payload);
               setAnalysisStage('complete');
             }
-          } catch (e) {
-            console.warn('Failed to parse stream chunk:', event);
+          } catch (e: unknown) {
+            console.warn('Failed to parse stream chunk:', event, e);
           }
         }
       }
 
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error("Analysis Error:", e);
-      setError(e.message);
-      setAnalysisStage('form'); // Revert to form on error
-       // GSAP animation to show the form again
+      setError(e instanceof Error ? e.message : 'Unknown error');
+      setAnalysisStage('form');
       const tl = gsap.timeline();
       tl.to(analysisViewRef.current, { opacity: 0, scale: 0.8, duration: 0.5, ease: 'power2.in' })
           .set(analysisViewRef.current, { display: 'none' })
