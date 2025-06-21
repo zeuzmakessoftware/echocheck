@@ -181,7 +181,7 @@ export default function EchocheckInterface() {
   };
 
   return (
-    <div className="echocheck-container">
+    <div className="echocheck-container invert">
       <div className="aurora-background">
         <div className="aurora-layer aurora-layer-1"></div>
         <div className="aurora-layer aurora-layer-2"></div>
