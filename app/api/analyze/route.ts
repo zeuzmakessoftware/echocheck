@@ -80,7 +80,7 @@ export async function POST(request: Request) {
             parts: [
               {
                 text:
-                  `Aggregate the following agent reports into JSON with echoScore, mainPoints, counterpoints.\n\n${JSON.stringify(
+                  `Aggregate the following agent reports into JSON with echoScore [0-100], mainPoints, counterpoints.\n\n${JSON.stringify(
                     agentReports
                   )}`
               }
