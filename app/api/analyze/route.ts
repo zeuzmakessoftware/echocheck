@@ -4,11 +4,11 @@ import { GoogleGenAI } from '@google/genai'
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY })
 const MODEL = 'gemini-2.0-flash'
 
-function stripCodeFences(s: string) {
-    return s
-    .replace(/^\s*```[a-zA-Z0-9]*\s*/g, '')
-    .replace(/\s*```\s*$/g, '')
-    .trim();
+function stripCodeFences(str: string) {
+return str
+    .replace(/^\s*```[^\n]*\n?/, '') // opening fence
+    .replace(/\n?```[\s\n]*$/, '')   // closing fence
+    .trim()
 }
 
 export async function POST(request: Request) {
@@ -17,28 +17,44 @@ export async function POST(request: Request) {
     if (!videoUrl || !userPrompt) {
       return NextResponse.json({ error: 'Missing videoUrl or userPrompt' }, { status: 400 })
     }
+
     const AGENTS = [
       { name: 'Advocate', prompt: 'You are The Advocate...' },
       { name: 'Skeptic', prompt: 'You are The Skeptic...' },
       { name: 'Synthesizer', prompt: 'You are The Synthesizer...' }
     ]
-    const chats = AGENTS.map(agent =>
-      ai.chats.create({ model: MODEL, config: { systemInstruction: agent.prompt } })
+
+    const config = { responseMimeType: 'text/plain' }
+
+    const contentFor = (agentPrompt: string) => [
+      {
+        role: 'user',
+        parts: [
+          {
+            fileData: { fileUri: videoUrl, mimeType: 'video/*' }
+          },
+          { text: `${agentPrompt}\n\n${userPrompt}` }
+        ]
+      }
+    ]
+
+    const streamPromises = AGENTS.map(a =>
+      ai.models.generateContentStream({ model: MODEL, config, contents: contentFor(a.prompt) })
     )
-    const streamPromises = chats.map(chat =>
-      chat.sendMessageStream({ message: `TRANSCRIPT_URL: ${videoUrl}\nPROMPT: ${userPrompt}` })
-    )
+
     const agentStreams = await Promise.all(streamPromises)
+
     const stream = new ReadableStream({
       async start(controller) {
         const encoder = new TextEncoder()
-        const agentReports: Record<string,string> = {}
-        const finishFlags: Record<string,boolean> = {}
+        const agentReports: Record<string, string> = {}
+        const finished: Record<string, boolean> = {}
+
         await Promise.all(
           agentStreams.map(async (genStream, idx) => {
             const name = AGENTS[idx].name
             agentReports[name] = ''
-            finishFlags[name] = false
+            finished[name] = false
             for await (const chunk of genStream) {
               agentReports[name] += chunk.text
               controller.enqueue(
@@ -50,28 +66,33 @@ export async function POST(request: Request) {
                 )
               )
             }
-            finishFlags[name] = true
+            finished[name] = true
           })
         )
-        const allDone = () => AGENTS.every(a => finishFlags[a.name])
-        while (!allDone()) {
-          await new Promise(res => setTimeout(res, 50))
+
+        while (!AGENTS.every(a => finished[a.name])) {
+          await new Promise(r => setTimeout(r, 25))
         }
-        const metaChat = ai.chats.create({
-          model: MODEL,
-          config: {
-            systemInstruction:
-              'Aggregate the following agent reports into echoScore, mainPoints, and counterpoints JSON.'
+
+        const metaContents = [
+          {
+            role: 'user',
+            parts: [
+              {
+                text:
+                  `Aggregate the following agent reports into JSON with echoScore, mainPoints, counterpoints.\n\n${JSON.stringify(
+                    agentReports
+                  )}`
+              }
+            ]
           }
-        })
-        const metaStream = await metaChat.sendMessageStream({
-          message: stripCodeFences(JSON.stringify(agentReports))
-        })
+        ]
+
+        const metaStream = await ai.models.generateContentStream({ model: MODEL, config, contents: metaContents })
         let finalText = ''
-        for await (const chunk of metaStream) {
-          finalText += chunk.text
-        }
-        const finalJson = JSON.parse(stripCodeFences(finalText))
+        for await (const chunk of metaStream) finalText += chunk.text
+
+        const finalJson = JSON.parse(stripCodeFences(finalText.trim()))
         const result = {
           echoScore: finalJson.echoScore,
           argumentMap: {
@@ -83,14 +104,12 @@ export async function POST(request: Request) {
             findings: agentReports[a.name]
           }))
         }
-        controller.enqueue(
-          encoder.encode(
-            `data: ${JSON.stringify({ type: 'final_result', payload: result })}\n\n`
-          )
-        )
+
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'final_result', payload: result })}\n\n`))
         controller.close()
       }
     })
+
     return new Response(stream, {
       headers: {
         'Content-Type': 'text/event-stream',

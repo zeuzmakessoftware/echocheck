@@ -34,6 +34,25 @@ const VortexInput: FC<VortexInputProps> = ({ icon, ...props }) => (
   </div>
 );
 
+async function fetchWithRetry(
+  input: RequestInfo,
+  init: RequestInit,
+  retries = 3,
+  backoff = 500
+): Promise<Response> {
+  try {
+    const res = await fetch(input, init)
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    return res
+  } catch (err) {
+    if (retries > 0) {
+      await new Promise(r => setTimeout(r, backoff))
+      return fetchWithRetry(input, init, retries - 1, backoff * 2)
+    }
+    throw err
+  }
+}
+
 interface MagneticButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   children: ReactNode;
 }
@@ -123,11 +142,16 @@ export default function EchocheckInterface() {
     setAnalysisStage('streaming');
 
     try {
-      const response = await fetch('/api/analyze', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ videoUrl, userPrompt }),
-      });
+      const response = await fetchWithRetry(
+        '/api/analyze',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ videoUrl, userPrompt }),
+        },
+        3,
+        500
+      )
 
       if (!response.ok) {
         const errorData = await response.json();
